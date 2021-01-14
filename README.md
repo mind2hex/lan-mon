@@ -1,2 +1,11 @@
 # lan-mon
-Lan monitor for linux 
+_Lan monitor for linux 
+
+## Information
+_This program create and use next files:
+$HOME/.config/...
+
+## Requirements
+nmap
+fping
+iwgetid
