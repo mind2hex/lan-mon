@@ -14,36 +14,64 @@ argument_checker(){
     argument_checker_mac  ## Uses global var $AUTHADDR $UNAUADDR $NAMEHOST $UNAMEHOST        
     
     ## Checking interface
-    argument_checker_interface $IFACE
+    if [[ "${IFACE}" != "NONE" ]];then
+	argument_checker_interface $IFACE
+    fi
 
     ## ip scanning range
-    argument_checker_range $RANGE
+    if [[ -n "${RANGE}" ]];then
+	argument_checker_range $RANGE
+    fi
+
+    if [[ "${IFACE}" != "NONE" && -z "${RANGE}" ]];then
+	ERROR "argument_checker" "Interface specified but not range"
+    elif [[ "${IFACE}" == "NONE" && -n "${RANGE}" ]];then
+	ERROR "argument_checker" "Range specified but not interface"
+    fi
 
     ## Checking address existence inside auth group of the DB
-    argument_checker_auth_addr # "${AUTHADDR}" "${UNAUADDR}" --> arrays
+    if [[ "${AUTHADDR}" != "NONE" ]];then
+	## Only executing this check if AUTHADDR is specified
+	argument_checker_auth_addr # "${AUTHADDR}" "${UNAUADDR}" --> arrays
+    fi
 
-
+    return 0
 }
 
 argument_checker_requeriments(){
     ## fping check
-    if [[ -z $(which fping) ]];then # using which
-	if [[ -z $(apt-cache policy fping | grep -o "^fping" | head -n 1) ]];then # using apt
-	    ERROR "argument_checker_requeriments" "fping is not installed"
+    which fping &>/dev/null
+    if [[ $? -ne 0 ]];then # using which
+	apt-cache policy fping  &>/dev/null
+	if [[ $? -ne 0 ]];then # using apt
+	    pacman -Q fping &>/dev/null
+	    if [[ $? -ne 0 ]];then # using pacman
+		ERROR "argument_checker_requeriments" "fping is not installed"
+	    fi
 	fi
     fi
 
     ## nmap check
-    if [[ -z $(which nmap) ]];then #using which
-	if [[ -z $(apt-cache policy nmap | grep -o "^nmap" | head -n 1) ]];then # using apt
-	    ERROR "argument_checker_requeriments" "nmap is not installed"
+    which nmap &>/dev/null
+    if [[ $? -ne 0 ]];then # using which
+	apt-cache policy nmap | grep -o "^nmap" | head -n 1 &>/dev/null 
+	if [[ $? -ne 0 ]];then # using apt
+	    pacman -Q nmap &>/dev/null
+	    if [[ $? -ne 0 ]];then # using pacman
+		ERROR "argument_checker_requeriments" "nmap is not installed"
+	    fi
 	fi
     fi
-
+    
     ## iwgetid check
-    if [[ -z $(which iwgetid) ]];then
-	if [[ -z $(apt-cache policy iwgetid | grep -o "^iwgetid" | head -n 1) ]];then
-	    ERROR "argument_checker_requeriments" "iwgetid is not installed"
+    which iwgetid &>/dev/null
+    if [[ $? -ne 0 ]];then # using which
+	apt-cache policy iwgetid | grep -o "^iwgetid" | head -n 1 &>/dev/null 
+	if [[ $? -ne 0 ]];then # using apt
+	    pacman -Q iwgetid &>/dev/null
+	    if [[ $? -ne 0 ]];then # using pacman
+		ERROR "argument_checker_requeriments" "iwgetid is not installed"
+	    fi
 	fi
     fi
 }

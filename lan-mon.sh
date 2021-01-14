@@ -191,16 +191,16 @@ argument_processor(){
 
     ## Adding a host to authorization file
     if [[ ${AUTHADDR} !=  "NONE" ]];then
-	num=`expr ${#AUTHADDR[@]} - 1`
-	for i in `seq 0 $num`;do
+	num=$(expr ${#AUTHADDR[@]} - 1)
+	for i in $(seq 0 $num);do
 	    movAddr "${AUTHADDR[$i]}" "$UNAUFILE" "$AUTHFILE"
 	done
     fi
     
     ## Removing a host from authorization file
     if [[ ${UNAUADDR} != "NONE" ]];then
-	num=`expr ${#UNAUADDR[@]} - 1`
-	for i in `seq 0 $num`;do
+	num=$(expr ${#UNAUADDR[@]} - 1)
+	for i in $(seq 0 $num);do
 	    movAddr "${UNAUADDR[$i]}" "$AUTHFILE" "$UNAUFILE"
 	done
     fi
@@ -229,35 +229,6 @@ argument_processor_pingScanning(){
     fi
 
     return 0
-    
-
-    # $1 net part
-    # $2 initial host
-    # $3 final host
-    local TOTAL_NUM_OF_HOST
-    $(test ${CIDR:1} -eq 32)&& TOTAL_NUM_OF_HOST=1
-    $(test ${CIDR:1} -lt 32)&& TOTAL_NUM_OF_HOST=$((2 ** `expr 32 - ${CIDR:1}`))
-    local net=`echo $RANGE | grep -o ".*[0-9]*[.]"`
-    local host=`echo $RANGE | cut -d '.' -f 4`
-
-    ### initial host and total num of host control
-    if [[ `expr $TOTAL_NUM_OF_HOST + $host ` -gt 256 ]];then
-	while [[ `expr $host + $TOTAL_NUM_OF_HOST` -gt 256 ]];do
-	    host=`expr $host - 1`
-	done
-	$(test $host -eq 0)&& host=1
-	TOTAL_NUM_OF_HOST=`expr $TOTAL_NUM_OF_HOST - 2`
-    fi
-    
-    tope=`expr $host + $TOTAL_NUM_OF_HOST`
-
-    for i in `seq $TOTAL_NUM_OF_HOST`;do
-	target_list=(${target_list[@]} ${net}$host)
-	host=`expr $host + 1`
-    done
-    
-    fping -I $IFACE -c 1  ${target_list[@]} &>/dev/null
-    wait
 }
 
 argument_processor_ARP_table_handler(){
@@ -270,14 +241,18 @@ argument_processor_ARP_table_handler(){
     arpInfo=$(/usr/sbin/arp --device $1 -n | grep --invert-match "incomplete")
     wait
 
-    
+    ## Grep macs from arpInfo... Maybe i can improve this regular expression
     arpMacs=($(echo $arpInfo | grep -o -E "[0-9a-f]{2}\:[0-9a-f\:]*" | tr "\n" " "))
-    arpAddr=($(echo $arpInfo | grep -o -E "$regEx" | tr "\n" " "))
-    BSSID=$(/sbin/iwgetid -r)
-    num=$(expr ${#arpMacs[@]} - 1)
 
+    ## Grep ip address
+    arpAddr=($(echo $arpInfo | grep -o -E "$regEx" | tr "\n" " "))
+
+    ## Actual BSSID from the interface
+    BSSID=$(/sbin/iwgetid -r)
     
+    num=$(expr ${#arpMacs[@]} - 1)
     for i in $(seq 0 $num);do
+	## Ensuring to not repeat hosts in the AUTH and UNAU files
 	if [[ -z $(cat $AUTHFILE | grep ${arpMacs[$i]}) && -z $(cat $UNAUFILE | grep ${arpMacs[$i]}) ]];then
 	    printf "%-13s %17s  %-8s %-8s \n" ${arpAddr[$i]} ${arpMacs[$i]} ${IFACE:0:7} ${BSSID:0:7} >> $UNAUFILE
 	else
@@ -289,18 +264,22 @@ argument_processor_ARP_table_handler(){
 printDB(){
     ## Esta funcion solo muestra los
     ## archivos de configuracion sin modificarlos
-
+    
+    ## Printing authorized file
     header=`printf "  %-13s %-17s  %-8s %-8s %-8s\n" "IP-ADDRESS" "MAC-ADDRESS" "IFACE" "SSID" "NAME"`
     echo -e "\e[32m" # Green
     echo "======== AUTHORIZED GROUP ========================================"
     echo "$header"
     echo "=================================================================="
+    ## Sorting output
     cat "$AUTHFILE" |  grep --invert-match "^\#" | sort --version-sort | nl -w 1 | tr "\t" " " 
 
+    ## Printing unauthorized file
     echo -e "\e[31m" # RED
     echo "======== UNAUTHORIZED GROUP ======================================"
     echo "$header"
     echo "=================================================================="
+    ## Sorting output
     cat "$UNAUFILE" | grep --invert-match "^\#" | sort --version-sort | nl -w 1 | tr "\t" " "
     echo -e "\e[0m"
 }
@@ -311,28 +290,36 @@ movAddr(){
     # $2 src_file
     # $3 dst_file
     local aux
-    ### Checking if MAC is not in dst
-    if [[ -n `cat $3 | grep "$1"` ]];then
+    
+    ## Checking if MAC is not in dst
+    if [[ -n $(cat $3 | grep "$1") ]];then
 	ERROR "movAddr" "MAC: $1 is already in $3"
     fi
 
-    ### Checking if MAC is in src
-    if [[ -z `cat $2 | grep "$1"` ]];then
+    ## Checking if MAC is in src
+    if [[ -z $(cat $2 | grep "$1") ]];then
 	ERROR "movAddr" "MAC: $1 is not in $2"
     fi
 
-    ### Checking if MAC in both [src,dst]
-    if [[ -n `cat $2 | grep "$1"` && -n `cat $3 | grep "$1"` ]];then
+    ## Checking if MAC is in both [src,dst]
+    if [[ -n $(cat $2 | grep "$1") && -n $(cat $3 | grep "$1") ]];then
 	echo "[X] MAC: $1 is in both files. "
 	echo "[!] Deleting $1 from $AUTHFILE"
-	aux=`cat $AUTHFILE | grep -n "$1" | grep -E -o "^[0-9]{1,3}"`
-	echo "`sed ${aux}d $AUTHFILE`" > $AUTHFILE
+	aux=$(cat $AUTHFILE | grep -n "$1" | grep -E -o "^[0-9]{1,3}")
+	echo "$(sed ${aux}d $AUTHFILE)" > $AUTHFILE
     fi
 
-    data=`cat $2 | grep "$1"`
-    aux=`cat $2 | grep -n "$1" | grep -E -o "^[0-9]{1,3}"`
-    echo "`sed ${aux}d $2`" > $2
+    data=$(cat $2 | grep "$1")
+    aux=$(cat $2 | grep -n "$1" | grep -E -o "^[0-9]{1,3}")
+    echo "$(sed ${aux}d $2)" > $2
     echo "$data" >> $3
+
+    ## Removing empty lines from files
+    AUTHRESULT=$(cat $AUTHFILE | grep "\S" --color=never)
+    echo "$AUTHRESULT" > $AUTHFILE
+    
+    UNAURESULT=$(cat $UNAUFILE | grep "\S" --color=never)
+    echo "$UNAURESULT" > $UNAUFILE
 }
 
 DB_checkSum(){
@@ -341,7 +328,7 @@ DB_checkSum(){
     local aux=$?
     if [[ $RESTART != "TRUE" ]];then
 	if [[ $aux -ne 0 ]];then
-	    ERROR "checkSum" "DB has been corrupted. Use --restart"
+	    ERROR "DB_checkSum" "DB has been corrupted. Use --restart"
 	fi
     fi
 }
@@ -358,9 +345,9 @@ DB_checkSum_update(){
 banner
 argument_parser "$@"
 source argument_checker.sh
+DB_checkSum
 argument_processor
 DB_checkSum_update
 exit 0
 
-# - FOr no reason when scanning the scanner skip the first host
-# - Still having the same god damn error
+# - Add name host utility
