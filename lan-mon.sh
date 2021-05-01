@@ -27,10 +27,6 @@
 
 VERSION="[v1.09]"
 AUTHOR="mind2hex"
-DIRDB="$HOME/.config/lan_DB"
-AUTHFILE="$DIRDB/authorized"
-UNAUFILE="$DIRDB/unauthorized"
-CHECKSUM="$DIRDB/.checksum.txt"
 
 regEx="(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-b9]|[01]?[0-9][0-9]?)"
 macRegEx="[0-9a-f]{2}\:[0-9a-f]{2}\:[0-9a-f]{2}\:[0-9a-f]{2}\:[0-9a-f]{2}\:[0-9a-f]{2}"
@@ -67,19 +63,21 @@ banner(){
 help(){
     echo 'usage: ./lan-monitor [OPTIONS] {-i|--interface}'
     echo "Description:"
-    echo "   Files generated and used by this program:   "
-    echo "     -->  $DIRDB         "
-    echo "     -->  $UNAUFILE      "
-    echo "     -->  $AUTHFILE      "    
+    echo "   Files generated and used by this program:            "
+    echo "     -->  $HOME/.config/lan_DB/<SSID>                   "
+    echo "     -->  $HOME/.config/lan_DB/<SSID>/authorized        "
+    echo "     -->  $HOME/.config/lan_DB/<SSID>/unauthorized      "
+    echo "     -->  $HOME/.config/lan_DB/<SSID>/.checksum.txt     "
     echo 'Options: '
-    echo "     -i,--interface <iface>            : Specify interface               "
-    echo "     -r,--range <ip-addr-range/CIDR>   : Specify ip address range to scan     "
-    echo "     -P,--print-mode                   : Just print known and unknown group   "
-    echo "     --add <mac>                       : Add mac address to known group           "
-    echo "     --remove <mac>                    : Remove mac address from known group  "
-    echo "     --restart                         : Restart Files used by this program "
-    echo "     --usage                           : Print examples of usage         "
-    echo "     -h,--help                         : Print this help message         "
+    echo "     -i,--interface <iface>            : Specify interface                                       "
+    echo "     -r,--range <ip-addr-range/CIDR>   : Specify ip address range to scan                        "
+    echo "     --privscan                        : Use arp ping to scan network, requires admin privileges "
+    echo "     -P,--print-mode                   : Just print known and unknown group                      "
+    echo "     --add <mac>                       : Add mac address to known group                          "
+    echo "     --remove <mac>                    : Remove mac address from known group                     "
+    echo "     --restart                         : Restart Files used by this program                      "
+    echo "     --usage                           : Print examples of usage                                 "
+    echo "     -h,--help                         : Print this help message                                 "
     echo ""
     exit 0
 }
@@ -121,12 +119,13 @@ argument_parser(){
 
     while [[ $# -gt 0 ]];do
 	case $1 in
-	    -i|--interface) IFACE=$2 && shift && shift;;
-	    -r|--range) RANGE=$2 && shift && shift;;
-	    -P|--print-mode) PRINTMODE="TRUE" && shift;;
-	    --add) AUTHADDR=(${AUTHADDR[@]} $2 ) && shift && shift;;
+	    -i|--interface) IFACE=$2                && shift && shift;;
+	    -r|--range) RANGE=$2                    && shift && shift;;
+	    -P|--print-mode) PRINTMODE="TRUE"       && shift;;
+	    --privscan) PRIVSCAN="TRUE"             && shift;;
+	    --add) AUTHADDR=(${AUTHADDR[@]} $2 )    && shift && shift;;
 	    --remove) UNAUADDR=(${UNAUADDR[@]} $2 ) && shift && shift;;
-	    --restart) RESTART="TRUE" && shift ;;
+	    --restart) RESTART="TRUE"               && shift ;;
 	    --usage) usage ;;
 	    -h|--help) help;;
 	    *) help ;;
@@ -137,8 +136,9 @@ argument_parser(){
     echo ${IFACE:="NONE"}      &>/dev/null # Interface to use for network tasks
     echo ${RANGE:=""}          &>/dev/null # range specified in CIDR notation
     echo ${PRINTMODE:="FALSE"} &>/dev/null # If True, just print the DB and exit
-    echo ${AUTHADDR:="NONE"}       &>/dev/null # 
-    echo ${UNAUADDR:="NONE"}       &>/dev/null #
+    echo ${PRIVSCAN:="FALSE"}  &>/dev/null # Privscan variable
+    echo ${AUTHADDR:="NONE"}   &>/dev/null # 
+    echo ${UNAUADDR:="NONE"}   &>/dev/null #
     echo ${RESTART:="FALSE"}   &>/dev/null # If True, clean the DB 
 }
 
@@ -153,9 +153,10 @@ generate_files(){
     echo -e "========================================================="
     echo "[*] Creating DataBase..."
     echo -ne "[1] " && mkdir -v "$DIRDB"
-    echo "[2] Generating $AUTHFILE" && touch $AUTHFILE
-    echo "[3] Generating $UNAUFILE" && touch $UNAUFILE
-    echo "[4] Generating $CHECKSUM" && md5sum $AUTHFILE $UNAUFILE > $CHECKSUM
+    echo -ne "[2] " && mkdir -v "$DIRDB/$SSID"
+    echo "[3] Generating $AUTHFILE" && touch $AUTHFILE
+    echo "[4] Generating $UNAUFILE" && touch $UNAUFILE
+    echo "[5] Generating $CHECKSUM" && md5sum $AUTHFILE $UNAUFILE > $CHECKSUM
     echo "[*] Done..."
     echo -e "=========================================================\n"
 }
@@ -217,17 +218,27 @@ argument_processor_pingScanning(){
     ## 2 scans to ensure all hosts are pinged
     
     ## Scan 1
-    nmap -e $1 --send-ip -sP -n -T5 $2 &>/dev/null
+    if [[ ${PRIVSCAN} == "TRUE" ]];then
+	sudo nmap -e $1 -sn -T5 $2 &>/dev/null          # SCAN 1 PRIVILEGED ARP
+    else
+	nmap -e $1 --send-ip -sP -n -T5 $2 &>/dev/null  # SCAN 2 UNPRIVILEGED ICMP echo
+    fi
+    
     if [[ $? -ne 0 ]];then
 	ERROR "argument_processor_pingScanning" "Error during the ping scan: $1 $2"
     fi
 
     ## Scan 2
-    nmap -e $1 --send-ip -sP -n -T5 $2 &>/dev/null
+    if [[ ${PRIVSCAN} == "TRUE" ]];then
+	sudo nmap -e $1 -sn -T5 $2 &>/dev/null          # SCAN 1 PRIVILEGED ARP
+    else
+	nmap -e $1 --send-ip -sP -n -T5 $2 &>/dev/null  # SCAN 2 UNPRIVILEGED ICMP echo
+    fi
+    
     if [[ $? -ne 0 ]];then
 	ERROR "argument_processor_pingScanning" "Error during the ping scan: $1 $2"
     fi
-
+    
     return 0
 }
 
@@ -337,17 +348,18 @@ DB_checkSum_update(){
     md5sum $AUTHFILE $UNAUFILE > $CHECKSUM
 }
 
-
 #############################
 ##      STARTING POINT     ##
 #############################
-
 banner
 argument_parser "$@"
-source argument_checker.sh
+source argument_checker.sh          
 DB_checkSum
 argument_processor
 DB_checkSum_update
 exit 0
 
 # - Add name host utility
+
+# Now the script identifies SSID, but it's better
+# idea to use BSSID of the AP and give it router name automatically

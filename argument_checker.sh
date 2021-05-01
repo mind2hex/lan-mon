@@ -1,14 +1,14 @@
 argument_checker(){
-    ## Print mode only print the DB so there is no need to do more checks
-    if [[ $PRINTMODE == "TRUE" ]];then
-        return 0
-    fi
-    
     ## Checking external programs used by this program
     argument_checker_requeriments
     
     ## configuration files check
     argument_checker_config_files
+    
+    ## Print mode only print the DB so there is no need to do more checks
+    if [[ $PRINTMODE == "TRUE" ]];then
+        return 0
+    fi
 
     ## Checking Mac address syntax
     argument_checker_mac  ## Uses global var $AUTHADDR $UNAUADDR $NAMEHOST $UNAMEHOST        
@@ -74,9 +74,29 @@ argument_checker_requeriments(){
 	    fi
 	fi
     fi
+
+    ## iwgetid check
+    which iw &>/dev/null
+    if [[ $? -ne 0 ]];then # using which
+	apt-cache policy iw | grep -o "^iw" | head -n 1 &>/dev/null 
+	if [[ $? -ne 0 ]];then # using apt
+	    pacman -Q iw &>/dev/null
+	    if [[ $? -ne 0 ]];then # using pacman
+		ERROR "argument_checker_requeriments" "iw is not installed"
+	    fi
+	fi
+    fi
+    
+
 }
 
 argument_checker_config_files(){
+    DIRDB="$HOME/.config/lan_DB"
+    SSID=$(iwgetid | grep -o '".*"' | tr -d '\"')
+    AUTHFILE="${DIRDB}/${SSID}/authorized"
+    UNAUFILE="${DIRDB}/${SSID}/unauthorized"
+    CHECKSUM="${DIRDB}/${SSID}/.checksum.txt" 
+    
     ## /home/$USER/.config file check
     if [[ ! -e /home/$USER/.config ]];then
 	mkdir /home/$USER/.config # Creating .config file if it not exist
